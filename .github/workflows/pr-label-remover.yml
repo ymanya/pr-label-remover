@@ -1,0 +1,41 @@
+name: PR label remover
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  remove_labels:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true
+    steps:
+      - uses: actions/github-script@v6
+        with:
+          script: |
+            // 削除したいラベルを指定
+            const labelsToBeDeleted = ["Don\'t Merge", "High Priority", "WIP"]
+            
+            // 今ついているラベルを取得
+            const prLabelsResult = await github.rest.issues.listLabelsOnIssue({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+            })
+            const prLabels = (prLabelsResult.data || []).map(label => label.name)
+            
+            // ラベルがないなら終了
+            if (!Array.isArray(prLabels) || prLabels.length === 0) {
+              return
+            }
+            
+            // 対象のラベルがあれば削除する
+            const targetLabels = labelsToBeDeleted.filter(label => prLabels.includes(label))
+            const requests = targetLabels.map(label => {
+              github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                name: label,
+              })
+            })
+            await Promise.all(requests)
