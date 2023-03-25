@@ -16,26 +16,44 @@ jobs:
             const labelsToBeDeleted = ["Don\'t Merge", "High Priority", "WIP"]
             
             // 今ついているラベルを取得
-            const prLabelsResult = await github.rest.issues.listLabelsOnIssue({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.pull_request.number,
+            const { repository } = await github.graphql(`
+              query fetchPullRequestWithLabels($owner: String!, $repo: String!, $number: Int!){
+                repository(owner: $owner, name: $repo) {
+                  pullRequest(number: $number) {
+                    id
+                    labels(first: 100) {
+                      nodes {
+                        id
+                        name
+                      }
+                    }
+                  }
+                }
+              }
+            `, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              number: context.payload.pull_request.number,
             })
-            const prLabels = (prLabelsResult.data || []).map(label => label.name)
+            const pullRequestID = repository.pullRequest.id
+            const prLabels = repository.pullRequest.labels.nodes
+            const targetLabelIDs = prLabels
+              .filter(prLabel => labelsToBeDeleted.includes(prLabel.name))
+              .map(prLabel => prLabel.id)
             
-            // ラベルがないなら終了
-            if (!Array.isArray(prLabels) || prLabels.length === 0) {
+            // 対象のラベルがないなら終了
+            if (targetLabelIDs.length === 0) {
               return
             }
             
             // 対象のラベルがあれば削除する
-            const targetLabels = labelsToBeDeleted.filter(label => prLabels.includes(label))
-            const requests = targetLabels.map(label => {
-              github.rest.issues.removeLabel({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.pull_request.number,
-                name: label,
-              })
+            await github.graphql(`
+              mutation removeLabelsFromPullRequest($pullRequestID: ID!, $targetLabelIDs: [ID!]!) { 
+                removeLabelsFromLabelable(input: { labelableId: $pullRequestID, labelIds: $targetLabelIDs }) {
+                  clientMutationId
+                }
+              }
+            `, {
+              pullRequestID,
+              targetLabelIDs,
             })
-            await Promise.all(requests)
