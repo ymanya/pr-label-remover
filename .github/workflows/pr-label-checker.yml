@@ -1,0 +1,42 @@
+name: PR label checker
+
+on:
+  pull_request:
+    types: [labeled, unlabeled]
+
+jobs:
+  check_labels:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v6
+        with:
+          script: |
+            // マージを防ぐラベルを指定
+            const targetLabels = ["Don\'t Merge", "WIP"]
+            
+            // 今ついているラベルを取得
+            const { repository } = await github.graphql(`
+              query fetchPullRequestWithLabels($owner: String!, $repo: String!, $number: Int!){
+                repository(owner: $owner, name: $repo) {
+                  pullRequest(number: $number) {
+                    id
+                    labels(first: 100) {
+                      nodes {
+                        name
+                      }
+                    }
+                  }
+                }
+              }
+            `, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              number: context.payload.pull_request.number,
+            })
+            const prLabels = repository.pullRequest.labels.nodes.map(label => label.name)
+            const targetLabelCount = targetLabels.filter(targetLabel => prLabels.includes(targetLabel)).length
+            if (targetLabelCount > 0) {
+              throw "マージを防ぐラベルが設定されています"
+            } else {
+              return 1
+            }
